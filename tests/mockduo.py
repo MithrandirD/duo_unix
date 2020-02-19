@@ -143,29 +143,39 @@ class MockDuoHandler(BaseHTTPServer.BaseHTTPRequestHandler):
             elif self.args['user'] == 'preauth-fail-missing_response':
                 ret['stat'] = 'FAIL'
             elif self.args['user'] == 'preauth-bad-stat':
-                ret['stat'] = 'FFFFUUUU'
+                ret['stat'] = 'BAD_STATUS'
             elif self.args['user'] == 'preauth-fail':
-                d = { 'stat': 'FAIL', 'code': 666, 'message': 'you fail' }
+                ret = { 'stat': 'FAIL', 'code': 1000, 'message': 'Pre-authentication failed' }
             elif self.args['user'] == 'preauth-deny':
-                ret['response'] = { 'result': 'deny', 'status': 'you suck' }
+                ret['response'] = { 'result': 'deny', 'status': 'preauth-denied' }
             elif self.args['user'] == 'preauth-allow':
-                ret['response'] = { 'result': 'allow', 'status': 'you rock' }
+                ret['response'] = { 'result': 'allow', 'status': 'preauth-allowed' }
             elif self.args['user'] == 'preauth-allow-bad_response':
-                ret['response'] = { 'result': 'allow', 'xxx': 'you rock' }
+                ret['response'] = { 'result': 'allow', 'xxx': 'preauth-allowed-bad-response' }
             elif (self.args['user'] == 'hostname'):
                 if (self.hostname_check(self.args['hostname'].lower())):
                     ret['response'] = { 'result': 'deny', 'status': 'correct hostname' }
                 else:
                     response = "hostname recieved: " + self.args['hostname'] + " found: " + socket.getfqdn()
                     ret['response'] = { 'result': 'deny', 'status': response }
+            elif self.args['user'] == 'failopen':
+                if self.args['failmode'] == 'open':
+                    ret['response'] = { 'result': 'deny', 'status': 'correct failmode' }
+                else:
+                    ret['response'] = { 'result': 'deny', 'status': 'incorrect failmode' }
+            elif self.args['user'] == 'failclosed':
+                if self.args['failmode'] == 'closed':
+                    ret['response'] = { 'result': 'deny', 'status': 'correct failmode' }
+                else:
+                    ret['response'] = { 'result': 'deny', 'status': 'incorrect failmode' }
             elif self.args['user'] == 'gecos_user_gecos_field6':
-                ret['response'] = { 'result': 'allow', 'status': 'you rock' }
+                ret['response'] = { 'result': 'allow', 'status': 'gecos-user-gecos-field6-allowed' }
             elif self.args['user'] == 'gecos_user_gecos_field3':
-                ret['response'] = { 'result': 'allow', 'status': 'you rock' }
+                ret['response'] = { 'result': 'allow', 'status': 'gecos-user-gecos-field3-allowed' }
             elif self.args['user'] == 'full_gecos_field':
-                ret['response'] = { 'result': 'allow', 'status': 'you rock' }
+                ret['response'] = { 'result': 'allow', 'status': 'full-gecos-field' }
             elif self.args['user'] == 'gecos/6':
-                ret['response'] = { 'result': 'allow', 'status': 'you rock' }
+                ret['response'] = { 'result': 'allow', 'status': 'gecos/6' }
             else:
                 ret['response'] = {
                     'result': 'auth',

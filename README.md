@@ -35,6 +35,11 @@ $ sudo apt-get install autoconf libtool libpam-dev libssl-dev
 $ sudo yum install autoconf libtool pam-devel openssl-devel
 ```
 
+- RHEL 7 and CentOS 7 systems with SELinux enabled
+```
+$ sudo yum install selinux-policy-devel
+```
+
 Clone the Duo Unix project down and enter the directory
 ```
 $ git clone <paste the url here>
@@ -130,7 +135,7 @@ For production deployments Duo recommends using our stable release tarballs or p
 
 ## Contributing
 
-Please read [CONTRIBUTING.md](CONTRIBUTING.md) for details on our code of conduct, and the process for submitting pull requests to us.
+Please read [CODEOFCONDUCT.md](CODEOFCONDUCT.md) and [CONTRIBUTING.md](CONTRIBUTING.md) for details on our code of conduct and the process for submitting pull requests to us.
 
 ## Versioning
 

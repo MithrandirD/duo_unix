@@ -21,7 +21,6 @@
 #include <netdb.h>
 #include <stdarg.h>
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 
@@ -34,7 +33,7 @@
 #include "util.h"
 #include "bson.h"
 #include "duo.h"
-#include "https.h"
+#include "duo_private.h"
 #include "ini.h"
 #include "urlenc.h"
 
@@ -62,28 +61,6 @@
 
 /* For sizing buffers; sufficient to cover the longest possible DNS FQDN */
 #define DNS_MAXNAMELEN 256
-
-struct duo_ctx {
-    https_t *https;    /* HTTPS handle */
-    char    *host;     /* host[:port] */
-    char    err[512];  /* error message */
-
-    char    *argv[16]; /* request arguments */
-    int     argc;
-
-    const char *body;  /* response body */
-    int     body_len;
-
-    int     https_timeout; /* milliseconds */
-
-    char *ikey;
-    char *skey;
-    char *useragent;
-
-    char *(*conv_prompt)(void *arg, const char *pr, char *buf, size_t sz);
-    void  (*conv_status)(void *arg, const char *msg);
-    void   *conv_arg;
-};
 
 static char *
 __prompt_fn(void *arg, const char *prompt, char *buf, size_t bufsz)
@@ -212,7 +189,7 @@ duo_reset_conv_funcs(struct duo_ctx *ctx)
     ctx->conv_status = __status_fn;
 }
 
-static duo_code_t
+duo_code_t
 duo_add_param(struct duo_ctx *ctx, const char *name, const char *value)
 {
     duo_code_t ret;
@@ -238,7 +215,7 @@ duo_add_param(struct duo_ctx *ctx, const char *name, const char *value)
     return (ret);
 }
 
-static duo_code_t
+duo_code_t
 duo_add_optional_param(struct duo_ctx *ctx, const char *name, const char *value)
 {
     /* Wrapper around duo_add_param for optional arguments.
@@ -298,8 +275,15 @@ _duo_add_hostname_param(struct duo_ctx *ctx)
     return duo_add_optional_param(ctx, "hostname", dns_fqdn);
 }
 
+int _duo_add_failmode_param(struct duo_ctx *ctx, const int failmode)
+{
+    const char *failmode_str = (failmode == DUO_FAIL_SECURE) ? ("closed") : ("open");
+
+    return duo_add_optional_param(ctx, "failmode", failmode_str);
+}
+
 #define _BSON_FIND(ctx, it, obj, name, type) do {           \
-    if (bson_find(it, obj, name) != type) {             \
+    if (bson_find(it, obj, name, ctx->body_len) != type) {             \
         _duo_seterr(ctx, "BSON missing valid '%s'", name);  \
         return (DUO_SERVER_ERROR);              \
     }                               \
@@ -317,7 +301,6 @@ _duo_bson_response(struct duo_ctx *ctx, bson *resp)
     bson_init(&obj, (char *)ctx->body, 0);
 
     ret = DUO_SERVER_ERROR;
-
     if (ctx->body_len <= 0 || bson_size(&obj) > ctx->body_len) {
         _duo_seterr(ctx, "invalid BSON response");
         return (ret);
@@ -400,7 +383,7 @@ duo_geterr(struct duo_ctx *ctx)
 
 duo_code_t
 _duo_preauth(struct duo_ctx *ctx, bson *obj, const char *username,
-    const char *client_ip)
+    const char *client_ip, const int failmode)
 {
     bson_iterator it;
     duo_code_t ret;
@@ -416,6 +399,10 @@ _duo_preauth(struct duo_ctx *ctx, bson *obj, const char *username,
     }
 
     if(_duo_add_hostname_param(ctx) != DUO_OK) {
+        return (DUO_LIB_ERROR);
+    }
+
+    if(_duo_add_failmode_param(ctx, failmode) != DUO_OK) {
         return (DUO_LIB_ERROR);
     }
 
@@ -473,7 +460,7 @@ _duo_prompt(struct duo_ctx *ctx, bson *obj, int flags, char *buf,
         _BSON_FIND(ctx, &it, obj, "factors", bson_object);
         bson_iterator_subobject(&it, obj);
 
-        if (bson_find(&it, obj, "default") != bson_string) {
+        if (bson_find(&it, obj, "default", ctx->body_len) != bson_string) {
             _duo_seterr(ctx, "No default factor found for automatic login");
             return (DUO_ABORT);
         }
@@ -505,7 +492,7 @@ _duo_prompt(struct duo_ctx *ctx, bson *obj, int flags, char *buf,
         _BSON_FIND(ctx, &it, obj, "factors", bson_object);
         bson_iterator_subobject(&it, obj);
 
-        if (bson_find(&it, obj, buf) == bson_string) {
+        if (bson_find(&it, obj, buf, ctx->body_len) == bson_string) {
             *p = bson_iterator_string(&it);
         } else {
             *p = buf;
@@ -533,7 +520,7 @@ duo_login(struct duo_ctx *ctx, const char *username,
     }
 
     /* Check preauth status */
-    if ((ret = _duo_preauth(ctx, &obj, username, client_ip)) != DUO_CONTINUE) {
+    if ((ret = _duo_preauth(ctx, &obj, username, client_ip, failmode)) != DUO_CONTINUE) {
         if(ret == DUO_SERVER_ERROR || ret == DUO_CONN_ERROR || ret == DUO_CLIENT_ERROR) {
             return (failmode == DUO_FAIL_SAFE) ? (DUO_FAIL_SAFE_ALLOW) : (DUO_FAIL_SECURE_DENY);
         }
@@ -621,13 +608,13 @@ duo_login(struct duo_ctx *ctx, const char *username,
             (ret = _duo_bson_response(ctx, &obj)) != DUO_OK) {
             break;
         }
-        if (bson_find(&it, &obj, "status") == bson_string) {
+        if (bson_find(&it, &obj, "status", ctx->body_len) == bson_string) {
             if (ctx->conv_status != NULL) {
                 ctx->conv_status(ctx->conv_arg,
                     bson_iterator_string(&it));
             }
         }
-        if (bson_find(&it, &obj, "result") == bson_string) {
+        if (bson_find(&it, &obj, "result", ctx->body_len) == bson_string) {
             p = bson_iterator_string(&it);
 
             if (strcasecmp(p, "allow") == 0) {
